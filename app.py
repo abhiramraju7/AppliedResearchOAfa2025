@@ -14,11 +14,22 @@ ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"}
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+try:
+    from dotenv import load_dotenv
+    for fname in ("key.env", ".env"):
+        p = os.path.join(BASE_DIR, fname)
+        if os.path.exists(p):
+            load_dotenv(p, override=False)
+except Exception:
+    pass
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+FLASK_SECRET = os.getenv("FLASK_SECRET", "dev-secret")
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
-app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret")
-key='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'
-OPENAI_API_KEY = key
+app.secret_key = FLASK_SECRET
+
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 HF_EXTRACT_MODEL = os.getenv("HF_EXTRACT_MODEL", "google/flan-t5-base")
@@ -38,6 +49,7 @@ def _load_hf_extractor(model_name):
         _HF_PIPES[model_name] = pipeline("text2text-generation", model=model_name, device=DEVICE)
     return _HF_PIPES[model_name]
 
+# ====== OCR with GPT-4o ======
 def ocr_with_gpt4o(image_path):
     if not client:
         raise RuntimeError("OPENAI_API_KEY not set.")
@@ -144,8 +156,8 @@ _DURATION_RE = re.compile(r"\bfor\s+(\d+)\s+(day|days|week|weeks)\b", re.I)
 _STARTING_RE = re.compile(r"\bstarting\s+(today|tomorrow|on\s+[A-Za-z]{3,}\s+\d{1,2}|\d{4}-\d{2}-\d{2}|next\s+[A-Za-z]+)\b", re.I)
 _ROUTE_WORDS = r"(oral|by mouth|po|iv|im|subcut|sc|subcutaneous|topical|inhale|inhalation)"
 _FREQ_WORDS = r"(?:once(?:\s+daily)?|1x/day|qd|twice(?:\s+daily)?|2x/day|bid|3x/day|tid|4x/day|qid|qhs|bedtime|night|qam|morning)"
-_ROUTE_RE = re.compile(rf"\b{_ROUTE_WORDS}\b", re.I)
-_FREQ_RE = re.compile(rf"\b{_FREQ_WORDS}\b", re.I)
+_ROUTE_RE = re.compile(rf"(?<!\w){_ROUTE_WORDS}(?!\w)", re.I)
+_FREQ_RE  = re.compile(rf"(?<!\w){_FREQ_WORDS}(?!\w)", re.I)
 _FOLLOWUP_RE = re.compile(r"\bfollow[- ]?up(?:\s+with\s+(Dr\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?))?", re.I)
 _REMINDER_RE = re.compile(r"\bset\s+reminder\s+to\s+(.+)", re.I)
 _ON_AT_RE = re.compile(r"\bon\s+([^,.;\n]+?)(?:\s+at\s+([^,.;\n]+))?(?:$|\b)", re.I)
@@ -409,6 +421,7 @@ def _allowed(filename):
 
 TOKENS = {}
 
+# ====== Routes ======
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html", result=None, token=None, ics_name=None, has_key=bool(OPENAI_API_KEY))
@@ -426,8 +439,9 @@ def process():
         flash("Unsupported file type. Please upload PNG/JPG/TIFF/WEBP/BMP.")
         return redirect(url_for("index"))
     if not OPENAI_API_KEY:
-        flash("OPENAI_API_KEY is not set. Please set it and restart the server.")
+        flash("OPENAI_API_KEY is not set. Please put it in key.env and restart the server.")
         return redirect(url_for("index"))
+
     ext = f.filename.rsplit(".", 1)[1].lower()
     uid = uuid.uuid4().hex
     img_path = os.path.join(UPLOAD_DIR, f"note_{uid}.{ext}")
